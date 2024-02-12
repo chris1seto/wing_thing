@@ -7,20 +7,35 @@
 #include "esp_log.h"
 #include "mdns.h"
 #include "esp_http_server.h"
+#include "web.c"
+#include "esp_attr.h"
+#include "driver/mcpwm.h"
+#include "soc/mcpwm_periph.h"
 
 #define WIFI_SSID "Squawk7700"
 #define WIFI_PASS "yoloswaggins"
 
-esp_err_t get_handler(httpd_req_t *req)
+#define SERVO_GPIO 18
+
+void SetServo(const uint32_t micros);
+
+esp_err_t get_home_handler(httpd_req_t *req)
 {
-  const char resp[] = "<!DOCTYPE html><html><body>Hello from ESP32!</body></html>";
-  httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send(req, (char*)puzzle_html, sizeof(puzzle_html));
   return ESP_OK;
 }
 
-esp_err_t open_handler(httpd_req_t *req)
+esp_err_t get_image_handler(httpd_req_t *req)
+{
+  httpd_resp_send(req, (char*)us_jpg, sizeof(us_jpg));
+  return ESP_OK;
+}
+
+esp_err_t get_open_handler(httpd_req_t *req)
 {
   const char resp[] = "Open";
+  printf("open!\r\n");
+  SetServo(2000);
   httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
 }
@@ -30,29 +45,37 @@ void start_webserver(void)
   httpd_handle_t server = NULL;
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
-  // Start the httpd server
   if (httpd_start(&server, &config) != ESP_OK)
   {
     return;
   }
 
-  httpd_uri_t uri_get = {
+  httpd_uri_t uri_get_home = {
     .uri       = "/",
     .method    = HTTP_GET,
-    .handler   = get_handler,
+    .handler   = get_home_handler,
     .user_ctx  = NULL
   };
 
-  httpd_register_uri_handler(server, &uri_get);
+  httpd_register_uri_handler(server, &uri_get_home);
 
-  httpd_uri_t uri_open = {
+  httpd_uri_t uri_get_image = {
+    .uri       = "/us.jpg",
+    .method    = HTTP_GET,
+    .handler   = get_image_handler,
+    .user_ctx  = NULL
+  };
+
+  httpd_register_uri_handler(server, &uri_get_image);
+
+  httpd_uri_t uri_get_open = {
     .uri       = "/open",
     .method    = HTTP_GET,
-    .handler   = open_handler,
+    .handler   = get_open_handler,
     .user_ctx  = NULL
   };
 
-  httpd_register_uri_handler(server, &uri_open);
+  httpd_register_uri_handler(server, &uri_get_open);
 }
 
 void mdns_setup(void)
@@ -108,28 +131,35 @@ void wifi_init(void)
   esp_wifi_start();
 }
 
+void SetServo(const uint32_t micros)
+{
+  mcpwm_set_frequency(MCPWM_UNIT_0, MCPWM_TIMER_0, 50); // 50Hz frequency
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, micros); // Set duty cycle in microseconds
+  mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, MCPWM_DUTY_MODE_0); // Set duty cycle type
+}
+
 void app_main(void)
 {
-  // Initialize NVS
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
   {
-      ESP_ERROR_CHECK(nvs_flash_erase());
-      ret = nvs_flash_init();
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ret = nvs_flash_init();
   }
+
   ESP_ERROR_CHECK(ret);
 
   wifi_init();
 
   start_webserver();
 
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, SERVO_GPIO);
+
+  SetServo(1200);
+
+
   while (true)
   {
-    // This task is going to do something very simple
-    printf("Idle task is running...\n");
-
-    // Delay for 1 second
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
-
