@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sliding Puzzle Game</title>
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone"></script>
+  <style>
+    body, html {
+      height: 100%;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f0f0f0;
+    }
+
+    .puzzle {
+      position: relative;
+      display: inline-block;
+    }
+
+    .tile {
+      position: absolute;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      background-size: cover;
+    }
+  </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+function Puzzle({ imageUrl, gridSize = 4 }) {
+  const [tiles, setTiles] = useState([]);
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [blankTile, setBlankTile] = useState(gridSize * gridSize - 1);
+
+  useEffect(() => {
+    initializePuzzle();
+  }, [imageUrl]);
+
+  const initializePuzzle = () => {
+    const image = new Image();
+    image.src = imageUrl;
+    image.onload = () => {
+      setImageSize({ width: image.width, height: image.height });
+      const tileWidth = image.width / gridSize;
+      const tileHeight = image.height / gridSize;
+      const newTiles = [];
+      for (let i = 0; i < gridSize * gridSize; i++) {
+        newTiles.push({
+          x: (i % gridSize) * tileWidth,
+          y: Math.floor(i / gridSize) * tileHeight,
+          id: i
+        });
+      }
+      shuffleAndCheckSolvable(newTiles);
+    };
+  };
+
+  const shuffleTiles = (tiles) => {
+    let shuffled = [...tiles];
+    let blankIndex = gridSize * gridSize - 1;
+    shuffled.splice(blankIndex, 1); // Remove the blank tile for shuffling
+
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    // Reinsert the blank tile at a random position for even grid sizes
+    if (gridSize % 2 === 0) {
+      blankIndex = Math.floor(Math.random() * (shuffled.length + 1));
+    }
+    shuffled.splice(blankIndex, 0, { id: gridSize * gridSize - 1, x: 0, y: 0 }); // Reinsert blank tile
+    return shuffled;
+  };
+
+  const countInversions = (tiles) => {
+    let inversions = 0;
+    for (let i = 0; i < tiles.length; i++) {
+      for (let j = i + 1; j < tiles.length; j++) {
+        if (tiles[i].id !== gridSize * gridSize - 1 && tiles[j].id !== gridSize * gridSize - 1 && tiles[i].id > tiles[j].id) {
+          inversions++;
+        }
+      }
+    }
+    return inversions;
+  };
+
+  const isSolvable = (tiles) => {
+    const inversions = countInversions(tiles);
+    if (gridSize % 2 === 0) {
+      const blankRow = Math.floor(tiles.findIndex(tile => tile.id === gridSize * gridSize - 1) / gridSize);
+      const fromBottom = gridSize - blankRow;
+      return ((fromBottom % 2 === 0) ? (inversions % 2 !== 0) : (inversions % 2 === 0));
+    } else {
+      return inversions % 2 === 0;
+    }
+  };
+
+  const shuffleAndCheckSolvable = (tiles) => {
+    let shuffled;
+    do {
+      shuffled = shuffleTiles(tiles);
+    } while (!isSolvable(shuffled));
+    setTiles(shuffled);
+  };
+
+  const isAdjacent = (index) => {
+    const blankRow = Math.floor(blankTile / gridSize);
+    const blankCol = blankTile % gridSize;
+    const tileRow = Math.floor(index / gridSize);
+    const tileCol = index % gridSize;
+
+    return Math.abs(blankRow - tileRow) + Math.abs(blankCol - tileCol) === 1;
+  };
+
+  const moveTile = (index) => {
+    if (isAdjacent(index)) {
+      const newTiles = tiles.slice();
+      [newTiles[blankTile], newTiles[index]] = [newTiles[index], newTiles[blankTile]];
+      setTiles(newTiles);
+      setBlankTile(index);
+      if (isSolved(newTiles)) {
+        console.log("Puzzle solved");
+        // Send a request to /open when the puzzle is solved
+        fetch('/open', { method: 'GET' })
+          .then(response => {
+            if (response.ok) {
+              console.log("Successfully sent GET request to /open");
+            } else {
+              console.error("Failed to send GET request to /open with response status:", response.status);
+            }
+          })
+          .catch(error => console.error("Failed to send GET request to /open", error));
+      }
+    }
+  };
+
+  const isSolved = (tiles) => {
+    for (let i = 0; i < tiles.length; i++) {
+      if (tiles[i].id !== i) return false;
+    }
+    return true;
+  };
+
+  return (
+    <div className="puzzle" style={{ width: imageSize.width, height: imageSize.height }}>
+      {tiles.map((tile, index) => (
+        index !== blankTile && (
+          <div
+            key={tile.id}
+            className="tile"
+            onClick={() => moveTile(index)}
+            style={{
+              backgroundImage: `url(${imageUrl})`,
+              backgroundPosition: `-${tile.x}px -${tile.y}px`,
+              backgroundSize: `${imageSize.width}px ${imageSize.height}px`,
+              width: imageSize.width / gridSize - 2,
+              height: imageSize.height / gridSize - 2,
+              left: (index % gridSize) * (imageSize.width / gridSize),
+              top: Math.floor(index / gridSize) * (imageSize.height / gridSize),
+            }}
+          ></div>
+        )
+      ))}
+    </div>
+  );
+}
+
+ReactDOM.render(
+  <Puzzle imageUrl="us.jpg" gridSize={3} />,
+  document.getElementById('root')
+);
+</script>
+
+</body>
+</html>
